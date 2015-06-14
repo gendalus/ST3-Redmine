@@ -1,6 +1,6 @@
 [
     {
-        "caption": "Redmine: Stuff To Do",
-        "command": "stuff_to_do"
+        "caption": "Redmine: Get Projects",
+        "command": "get_projects"
     }
 ]
