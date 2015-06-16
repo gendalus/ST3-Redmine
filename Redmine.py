@@ -15,6 +15,7 @@ class RedmineManager():
         self.settings['auth_via_api_key'] = settings.get('auth_via_api_key')
         self.settings['redmine_url'] = settings.get('redmine_url')
         self.settings['redmine_user_id'] = settings.get('redmine_user_id')
+        self.settings['show_project_name'] = settings.get('show_project_name')
 
     def list_stuff_to_do(self):
         if self.settings['auth_via_api_key']:
@@ -24,7 +25,6 @@ class RedmineManager():
                    self.settings["redmine_user_id"],
                    self.settings["api_key"]
                 )
-            print(url)
             request = urllib.request.Request(url)
             response = urllib.request.urlopen(request)
             data = json.loads(response.read().decode())
@@ -106,10 +106,17 @@ class GetIssuesCommand(sublime_plugin.WindowCommand):
         self.issues = self.manager.list_stuff_to_do()
         for issue in self.issues:
             issue_entry = []
-            issue_entry.append(issue["subject"] + " (" + str(issue["id"]) +
-                               ")")
-            issue_entry.append("%s %s" % (issue["project"]["name"],
-                                          issue["description"][0:85]))
+            issue_entry.append("%s (%d)" % (issue["subject"], issue["id"]))
+
+            if self.manager.settings["show_project_name"]:
+                issue_entry.append(issue["project"]["name"])
+
+            issue_entry.append("Status: %s - Priorität: %s" % (
+                               issue["status"]["name"],
+                               issue["priority"]["name"]))
+
+            issue_entry.append(issue["description"][0:85])
+
             self.issue_names.append(issue_entry)
         self.window.show_quick_panel(self.issue_names, self.on_done)
 
