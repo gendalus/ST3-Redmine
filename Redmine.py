@@ -107,7 +107,22 @@ class RedmineIssue():
 
         load = '{"issue": {"status_id": %d} }' % new_state_id
         load = str.encode(load)
-        headers = {"Content-Type": "application/json;"}
+        headers = {"Content-Type": "application/json"}
+        req = urllib.request.Request(url=self.url,
+                                     data=load,
+                                     headers=headers,
+                                     method='PUT')
+        response = response = urllib.request.urlopen(req)
+        http_code = response.getcode()
+        if http_code != 200:
+            sublime.error_message("Status change failed")
+
+    def change_subject(self, subject):
+        print("URL: %s" % self.url)
+        print("New subject: %s" % subject)
+        load = '{"issue": {"subject": "%s"}}' % subject
+        load = str.encode(load)
+        headers = {"Content-Type": "application/json"}
         req = urllib.request.Request(url=self.url,
                                      data=load,
                                      headers=headers,
@@ -383,18 +398,28 @@ class GetIssueCommand(sublime_plugin.WindowCommand):
             panel_items = ["Offen", "In Bearbeitung", "Erledigt"]
             self.window.show_quick_panel(panel_items, self.on_change)
 
+        if self.change == "subject":
+            def on_done(subject):
+                self.issue.change_subject(subject)
+
+            self.window.show_input_panel("Subject",
+                                         self.issue.subject,
+                                         on_done,
+                                         None,
+                                         None)
+
     def async_load(self):
         self.issue = RedmineIssue(self.manager.settings['redmine_url'],
                                   self.manager.settings['api_key'],
                                   self.issue_id)
 
         issue_attr = dir(self.issue)
-        attr_excludes = ["url", "key", "fetch", "id", "identifier",
-                         "change_status"]
+        attr_excludes = ["url", "key", "fetch", "id", "identifier"]
         for item in issue_attr:
-            if "__" not in item and item not in attr_excludes:
-                if "_id" not in item:
-                    self.attr_list.append(item)
+            if "change_" not in item:
+                if "__" not in item and item not in attr_excludes:
+                    if "_id" not in item:
+                        self.attr_list.append(item)
         self.attr_list = sorted(self.attr_list)
 
         panel_items = []
