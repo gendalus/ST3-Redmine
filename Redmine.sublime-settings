@@ -1,12 +1,12 @@
 {
 	// User API Key
 	"api_key": "",
-	
+
 	// Should the auth be done via the API-Key
 	"auth_via_api_key": false,
-	
+
 	// Redmine URL
-	"redmine_url": "", 
+	"redmine_url": "",
 
 	// Redmine User ID
 	"redmine_user_id": "",

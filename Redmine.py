@@ -7,6 +7,20 @@ import sublime_plugin
 # from pprint import pprint
 
 
+def plugin_loaded():
+    ''' checking for users settings file '''
+    settings = sublime.load_settings("Redmine.sublime-settings")
+
+    user_id = settings.get('redmine_user_id')
+    url = settings.get('redmine_url')
+    key = settings.get('api_key')
+
+    if not user_id and not url and not key:
+        act_window = sublime.active_window()
+        settings_path = "$packages/User/Redmine.sublime-settings"
+        act_window.run_command("open_file", {"file": settings_path})
+
+
 class RedmineProject():
     def __init__(self, base_url, api_key, project_name):
         # vars needed for the fetch
@@ -197,7 +211,7 @@ class RedmineManager():
         self.settings['auth_via_api_key'] = settings.get('auth_via_api_key')
         self.settings['redmine_url'] = settings.get('redmine_url')
         self.settings['redmine_user_id'] = settings.get('redmine_user_id')
-        self.settings['show_project_name'] = settings.get('show_project_name')
+        self.settings['show_project_name'] = settings.get('show_project_name_in_issue_list')
 
     def list_stuff_to_do(self):
         if self.settings['auth_via_api_key']:
@@ -473,3 +487,23 @@ class InsertTextCommand(sublime_plugin.TextCommand):
         if "\r" in text:
             text = text.replace("\r", "")
         self.view.insert(edit, 0, text)
+
+
+class EventListener(sublime_plugin.EventListener):
+    def on_load(self, view):
+        file_name = sublime.packages_path() + "/User/Redmine.sublime-settings"
+        # is this the settings file?
+        if view.file_name() == file_name:
+            try:
+                settings = sublime.load_settings("Redmine.sublime-settings")
+
+                user_id = settings.get('redmine_user_id')
+                url = settings.get('redmine_url')
+                key = settings.get('api_key')
+
+                if not user_id and not url and not key:
+                    default_settings = open("Redmine.sublime-settings").read()
+                    view.run_command("insert_text",
+                                     {"text": default_settings})
+            except Exception as e:
+                raise e
