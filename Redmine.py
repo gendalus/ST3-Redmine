@@ -5,8 +5,8 @@ import os
 import sys
 import sublime
 import sublime_plugin
-import requests
 sys.path.append(os.path.dirname(__file__))
+import requests
 
 
 def plugin_loaded():
@@ -90,6 +90,7 @@ class RedmineIssue():
         self.url = "%s/issues/%s.json?key=%s" % (base_url,
                                                  issue_id,
                                                  api_key)
+        self.change_headers = {"Content-Type": "application/json"}
         self.__fetch()
 
     def __fetch(self):
@@ -121,19 +122,27 @@ class RedmineIssue():
             new_state_id = 4
 
         data = json.dumps({"issue": {"status_id": new_state_id}})
-        headers = {"Content-Type": "application/json"}
-        r = requests.put(self.url, data=data, headers=headers)
+        self.change_headers = {"Content-Type": "application/json"}
+        r = requests.put(self.url, data=data, headers=self.change_headers)
 
         if r.status_code != 200:
             sublime.error_message("Status change failed")
 
     def change_subject(self, subject):
         data = json.dumps({"issue": {"subject": subject}})
-        headers = {"Content-Type": "application/json"}
-        r = requests.put(self.url, data=data, headers=headers)
+        self.change_headers = {"Content-Type": "application/json"}
+        r = requests.put(self.url, data=data, headers=self.change_headers)
 
         if r.status_code != 200:
             sublime.error_message("Status change failed")
+
+    def change_done_ratio(self, ratio):
+        data = json.dumps({"issue": {"done_ratio": ratio}})
+        self.change_headers = {"Content-Type": "application/json"}
+        r = requests.put(self.url, data=data, headers=self.change_headers)
+
+        if r.status_code != 200:
+            sublime.error_message("Done ratio change failed")
 
 
 class RedmineWiki():
@@ -410,6 +419,34 @@ class GetIssueCommand(sublime_plugin.WindowCommand):
         if self.change == "status":
             self.issue.change_status(picked)
 
+        if self.change == "done_ratio":
+            def on_done(ratio_input):
+                ratio = None
+
+                try:
+                    ratio = int(ratio_input)
+                except Exception:
+                    pass
+
+                if ratio is None:
+                    self.window.show_input_panel("Done ratio",
+                                                 "",
+                                                 on_done,
+                                                 None,
+                                                 None)
+                else:
+                    self.issue.change_done_ratio(ratio)
+
+            if picked == 0:
+                self.window.show_input_panel("Done ratio",
+                                             "",
+                                             on_done,
+                                             None,
+                                             None)
+            else:
+                ratio = picked - 1
+                self.issue.change_done_ratio(ratio)
+
     def on_select(self, picked):
         self.change = self.attr_list[picked]
 
@@ -426,6 +463,12 @@ class GetIssueCommand(sublime_plugin.WindowCommand):
                                          on_done,
                                          None,
                                          None)
+
+        if self.change == "done_ratio":
+            panel_items = ["Custom", "0%"]
+            for i in range(1, 11):
+                panel_items.append("%d0%%" % i)
+            self.window.show_quick_panel(panel_items, self.on_change)
 
     def is_editable(self, item):
         if item == "updated_on":
