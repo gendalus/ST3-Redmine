@@ -1,10 +1,12 @@
 import json
 from datetime import datetime
-import urllib.request
-
+import re
+import os
+import sys
 import sublime
 import sublime_plugin
-# from pprint import pprint
+import requests
+sys.path.append(os.path.dirname(__file__))
 
 
 def plugin_loaded():
@@ -38,15 +40,15 @@ class RedmineProject():
                self.identifier,
                self.key
             )
-        request = urllib.request.Request(url)
-        response = urllib.request.urlopen(request)
-        data = json.loads(response.read().decode())
+        r = requests.get(url)
+        data = json.loads(r.text)
 
         project = data['project']
 
         self.id = project['id']
         self.name = project['name']
-        self.parent = project['parent']['name']
+        if "parent" in project:
+            self.parent = project['parent']['name']
         self.status = project['status']
         self.description = project['description']
         self.homepage = project['homepage']
@@ -88,12 +90,11 @@ class RedmineIssue():
         self.url = "%s/issues/%s.json?key=%s" % (base_url,
                                                  issue_id,
                                                  api_key)
-        self.fetch()
+        self.__fetch()
 
-    def fetch(self):
-        request = urllib.request.Request(self.url)
-        response = urllib.request.urlopen(request)
-        data = json.loads(response.read().decode())
+    def __fetch(self):
+        r = requests.get(self.url)
+        data = json.loads(r.text)
 
         issue = data['issue']
         self.id = issue['id']
@@ -119,31 +120,19 @@ class RedmineIssue():
         if status == 2 and self.status_id != 4:
             new_state_id = 4
 
-        load = '{"issue": {"status_id": %d} }' % new_state_id
-        load = str.encode(load)
+        data = json.dumps({"issue": {"status_id": new_state_id}})
         headers = {"Content-Type": "application/json"}
-        req = urllib.request.Request(url=self.url,
-                                     data=load,
-                                     headers=headers,
-                                     method='PUT')
-        response = response = urllib.request.urlopen(req)
-        http_code = response.getcode()
-        if http_code != 200:
+        r = requests.put(self.url, data=data, headers=headers)
+
+        if r.status_code != 200:
             sublime.error_message("Status change failed")
 
     def change_subject(self, subject):
-        print("URL: %s" % self.url)
-        print("New subject: %s" % subject)
-        load = '{"issue": {"subject": "%s"}}' % subject
-        load = str.encode(load)
+        data = json.dumps({"issue": {"subject": subject}})
         headers = {"Content-Type": "application/json"}
-        req = urllib.request.Request(url=self.url,
-                                     data=load,
-                                     headers=headers,
-                                     method='PUT')
-        response = response = urllib.request.urlopen(req)
-        http_code = response.getcode()
-        if http_code != 200:
+        r = requests.put(self.url, data=data, headers=headers)
+
+        if r.status_code != 200:
             sublime.error_message("Status change failed")
 
 
@@ -152,7 +141,6 @@ class RedmineWiki():
         self.url = base_url
         self.key = api_key
         self.identifier = project_name
-        print(self.identifier)
 
         self.page_list = self.fetch_page_list()
 
@@ -162,9 +150,8 @@ class RedmineWiki():
         url = "%s/projects/%s/wiki/index.json?key=%s" % (self.url,
                                                          self.identifier,
                                                          self.key)
-        request = urllib.request.Request(url)
-        response = urllib.request.urlopen(request)
-        data = json.loads(response.read().decode())
+        r = requests.get(url)
+        data = json.loads(r.text)
         pages = data['wiki_pages']
 
         for page in pages:
@@ -175,30 +162,53 @@ class RedmineWiki():
 
 
 class RedmineWikiPage():
-    def __init__(self, base_url, api_key, project_id, page_name):
-        self.url = base_url
+    def __init__(self, base_url, api_key, project_id, page_name, version=None):
         self.key = api_key
         self.project_id = project_id
         self.name = page_name
+        self.url = "%s/projects/%s/wiki/%s.json?key=%s" % (base_url,
+                                                           self.project_id,
+                                                           self.name,
+                                                           self.key)
         self.page_text = ""
+        self.version = version
         self.fetch()
 
     def fetch(self):
-        url = "%s/projects/%s/wiki/%s.json?key=%s" % (self.url,
-                                                      self.project_id,
-                                                      self.name,
-                                                      self.key)
-        request = urllib.request.Request(url)
-        response = urllib.request.urlopen(request)
-        data = json.loads(response.read().decode())
+        r = requests.get(self.url)
+        data = json.loads(r.text)
         page = data['wiki_page']
         self.page_text = page['text']
+
+        if self.version is None:
+            self.version = page['version']
 
     def text(self, text=None):
         if text is None:
             return self.page_text
+        elif type(text).__name__ == "dict":
+            if self.page_text == text['text']:
+                return
+            payload = {"text": text['text']}
+            print(text)
+            if self.version:
+                payload['version'] = self.version
+
+            if "comment" in text:
+                payload['comments'] = text['comment']
+
         else:
-            pass
+            if self.page_text == text:
+                return
+            payload = {"text": text}
+
+        if payload:
+            data = json.dumps({"wiki_page": payload})
+            headers = {"Content-Type": "application/json"}
+            r = requests.put(self.url, data=data, headers=headers)
+
+            if r.status_code != 200:
+                sublime.error_message("Saving Failed")
 
 
 class RedmineManager():
@@ -211,7 +221,8 @@ class RedmineManager():
         self.settings['auth_via_api_key'] = settings.get('auth_via_api_key')
         self.settings['redmine_url'] = settings.get('redmine_url')
         self.settings['redmine_user_id'] = settings.get('redmine_user_id')
-        self.settings['show_project_name'] = settings.get('show_project_name_in_issue_list')
+        proj_names = settings.get('show_project_name_in_issue_list')
+        self.settings['show_project_name'] = proj_names
 
     def list_stuff_to_do(self):
         if self.settings['auth_via_api_key']:
@@ -221,35 +232,29 @@ class RedmineManager():
                    self.settings["redmine_user_id"],
                    self.settings["api_key"]
                 )
-            request = urllib.request.Request(url)
-            response = urllib.request.urlopen(request)
-            data = json.loads(response.read().decode())
+            r = requests.get(url)
+            data = json.loads(r.text)
             issues = data["issues"]
             return issues
         else:
-            request = urllib.request.Request(self.settings['redmine_url'] +
-                                             "/issues.json?assigned_to_id=" +
-                                             self.settings["redmine_user_id"])
-            auth_handler = urllib.request.HTTPBasicAuthHandler()
-            auth_handler.add_password("Redmine API",
-                                      self.settings["redmine_url"],
-                                      self.settings["username"],
-                                      self.settings["password"])
-            opener = urllib.request.build_opener(auth_handler)
-            urllib.request.install_opener(opener)
-            response = urllib.request.urlopen(request)
-            data = json.loads(response.read().decode())
+            url = "%s/issues.json?assigned_to_id=%s" % (
+                   self.settings['redmine_url'],
+                   self.settings["redmine_user_id"])
+
+            r = requests.get(url, auth=(self.settings['username'],
+                                        self.settings['password']))
+
+            data = json.loads(r.text)
             issues = data["issues"]
             return issues
 
     def list_projects(self):
+        projects = None
         if self.settings['auth_via_api_key']:
-            url = (self.settings['redmine_url'] +
-                   "/projects.json?key=" +
-                   self.settings['api_key'])
-            request = urllib.request.Request(url)
-            response = urllib.request.urlopen(request)
-            data = json.loads(response.read().decode())
+            url = "%s/projects.json?key=%s" % (self.settings['redmine_url'],
+                                               self.settings['api_key'])
+            r = requests.get(url)
+            data = json.loads(r.text)
             projects = data['projects']
             return projects
         else:
@@ -260,7 +265,6 @@ class GetProjectsCommand(sublime_plugin.WindowCommand):
     def __init__(self, *a, **ka):
         super(GetProjectsCommand, self).__init__(*a, **ka)
         self.projects = None
-        self.project_names = []
 
     def on_select(self, picked):
         if picked == -1:
@@ -271,6 +275,7 @@ class GetProjectsCommand(sublime_plugin.WindowCommand):
 
     def async_load(self):
         self.projects = self.manager.list_projects()
+        self.project_names = []
         for project in self.projects:
             project_entry = []
             project_entry.append(project["name"])
@@ -422,13 +427,22 @@ class GetIssueCommand(sublime_plugin.WindowCommand):
                                          None,
                                          None)
 
+    def is_editable(self, item):
+        if item == "updated_on":
+            return False
+        if item == "created_on":
+            return False
+        if item == "closed_on":
+            return False
+        return True
+
     def async_load(self):
         self.issue = RedmineIssue(self.manager.settings['redmine_url'],
                                   self.manager.settings['api_key'],
                                   self.issue_id)
 
         issue_attr = dir(self.issue)
-        attr_excludes = ["url", "key", "fetch", "id", "identifier"]
+        attr_excludes = ["url", "key", "id", "identifier"]
         for item in issue_attr:
             if "change_" not in item:
                 if "__" not in item and item not in attr_excludes:
@@ -456,6 +470,9 @@ class GetIssueCommand(sublime_plugin.WindowCommand):
             if item == "done_ratio":
                 sub_line = "%s%%" % sub_line
 
+            if not self.is_editable(item):
+                sub_line = "%s - %s" % (u"\U0001F512", sub_line)
+
             panel_items.append([name, sub_line])
 
         self.window.show_quick_panel(panel_items, self.on_select)
@@ -477,9 +494,49 @@ class OpenPageCommand(sublime_plugin.WindowCommand):
                                     page_name)
 
         v = self.window.new_file()
-        v.set_syntax_file("Packages/Textile/Textile.tmLanguage")
+        # setting syntax for identification purpusses
+        # it's a copy of textile with an altered name
+        v.set_syntax_file("Packages/ST3-Redmine/st3-wiki-page.tmLanguage")
         v.set_name("%s Wiki: %s" % (project_id, wiki_page.name))
+        v.set_scratch(True)
+
+        v.set_status("01", "Project: %s" % project_id)
+        v.set_status("02", "Wiki page: %s (v. %d)" % (page_name,
+                                                      wiki_page.version))
+
         self.window.run_command('insert_text', {"text": wiki_page.text()})
+
+
+class ChangeWikiPage(sublime_plugin.WindowCommand):
+    def run(self, *a, **ka):
+        self.manager = RedmineManager()
+        self.project_id = ka['project_id']
+        self.page_name = ka['page_name']
+        self.version = ka['version']
+        self.whole_text = ka['whole_text']
+        self.window.show_input_panel("Comment for Wiki Page Change",
+                                     "",
+                                     self.comment,
+                                     None,
+                                     None)
+
+    def comment(self, text):
+        if text != "":
+            self.comment = text
+        sublime.set_timeout_async(self.async_write, 0)
+
+    def async_write(self):
+        self.wiki = RedmineWikiPage(self.manager.settings['redmine_url'],
+                                    self.manager.settings['api_key'],
+                                    self.project_id,
+                                    self.page_name,
+                                    self.version)
+
+        if self.comment:
+            self.wiki.text({"text": self.whole_text,
+                            "comment": self.comment})
+        else:
+            self.wiki.text(self.whole_text)
 
 
 class InsertTextCommand(sublime_plugin.TextCommand):
@@ -507,3 +564,37 @@ class EventListener(sublime_plugin.EventListener):
                                      {"text": default_settings})
             except Exception as e:
                 raise e
+
+    def on_pre_close(self, view):
+        def is_wiki_page(self, view):
+            if view.get_status("01")[:9] == "Project: ":
+                if view.get_status("02")[:11] == "Wiki page: ":
+                    return True
+
+            return False
+
+        if is_wiki_page(self, view):
+            whole_text = view.substr(sublime.Region(0, view.size()))
+
+            self.project_id = view.get_status("01")[9:]
+            page_title = view.get_status("02")
+            pattern = r'(?<=\(v. )(\d+)(?=\)$)'
+            self.version = int(re.findall(pattern, page_title)[0])
+
+            pattern = r'(?<=Wiki page: )(.*)(?= \(v. \d+)'
+            self.page_name = re.findall(pattern, page_title)[0]
+
+            view.window().run_command("change_wiki_page",
+                                      {"project_id": self.project_id,
+                                       "page_name": self.page_name,
+                                       "version": self.version,
+                                       "whole_text": whole_text})
+
+            self.manager = RedmineManager()
+            # self.wiki = RedmineWikiPage(self.manager.settings['redmine_url'],
+            #                             self.manager.settings['api_key'],
+            #                             self.project_id,
+            #                             self.page_name,
+            #                             self.version)
+
+            # self.wiki.text(whole_text)
