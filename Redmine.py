@@ -111,6 +111,20 @@ class RedmineIssue():
                 setattr(self, item, issue[item]['name'])
                 setattr(self, "%s_id" % item, issue[item]['id'])
 
+    def change_done_ratio(self, ratio):
+        data = json.dumps({"issue": {"done_ratio": ratio}})
+        r = requests.put(self.url, data=data, headers=self.change_headers)
+
+        if r.status_code != 200:
+            sublime.error_message("Done ratio change failed")
+
+    def change_priority(self, priority):
+        data = json.dumps({"issue": {"priority_id": priority}})
+        r = requests.put(self.url, data=data, headers=self.change_headers)
+
+        if r.status_code != 200:
+            sublime.error_message("Priority change failed")
+
     def change_status(self, status):
         if status not in [0, 1, 2]:
             return
@@ -122,7 +136,6 @@ class RedmineIssue():
             new_state_id = 4
 
         data = json.dumps({"issue": {"status_id": new_state_id}})
-        self.change_headers = {"Content-Type": "application/json"}
         r = requests.put(self.url, data=data, headers=self.change_headers)
 
         if r.status_code != 200:
@@ -130,19 +143,10 @@ class RedmineIssue():
 
     def change_subject(self, subject):
         data = json.dumps({"issue": {"subject": subject}})
-        self.change_headers = {"Content-Type": "application/json"}
         r = requests.put(self.url, data=data, headers=self.change_headers)
 
         if r.status_code != 200:
             sublime.error_message("Status change failed")
-
-    def change_done_ratio(self, ratio):
-        data = json.dumps({"issue": {"done_ratio": ratio}})
-        self.change_headers = {"Content-Type": "application/json"}
-        r = requests.put(self.url, data=data, headers=self.change_headers)
-
-        if r.status_code != 200:
-            sublime.error_message("Done ratio change failed")
 
 
 class RedmineWiki():
@@ -416,6 +420,9 @@ class GetIssueCommand(sublime_plugin.WindowCommand):
         self.change = None
 
     def on_change(self, picked):
+        if picked == -1:
+            return
+
         if self.change == "status":
             self.issue.change_status(picked)
 
@@ -447,6 +454,10 @@ class GetIssueCommand(sublime_plugin.WindowCommand):
                 ratio = picked - 1
                 self.issue.change_done_ratio(ratio)
 
+        if self.change == "priority":
+            priority = [5, 6, 7]
+            self.issue.change_priority(priority[picked])
+
     def on_select(self, picked):
         self.change = self.attr_list[picked]
 
@@ -470,6 +481,10 @@ class GetIssueCommand(sublime_plugin.WindowCommand):
                 panel_items.append("%d0%%" % i)
             self.window.show_quick_panel(panel_items, self.on_change)
 
+        if self.change == "priority":
+            panel_items = ["Niedrig", "Normal", "Hoch"]
+            self.window.show_quick_panel(panel_items, self.on_change)
+
     def is_editable(self, item):
         if item == "updated_on":
             return False
@@ -484,6 +499,7 @@ class GetIssueCommand(sublime_plugin.WindowCommand):
                                   self.manager.settings['api_key'],
                                   self.issue_id)
 
+        self.attr_list = []
         issue_attr = dir(self.issue)
         attr_excludes = ["url", "key", "id", "identifier"]
         for item in issue_attr:
